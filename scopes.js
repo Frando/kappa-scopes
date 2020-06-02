@@ -33,15 +33,6 @@ const DEFAULT_NAMESPACE = 'kappa-group'
 const FEED_LOCAL = 'local'
 const FEED_TYPE = 'hypercore'
 
-module.exports = function (opts = {}) {
-  const scopes = new Scopes(opts)
-  const scope = scopes.createScopeWithRootFeed(opts)
-  scope.replicate = function (...opts) {
-    return scope.corestore.replicate(...opts)
-  }
-  return scope
-}
-
 class Scopes {
   constructor (opts = {}) {
     this.corestore = opts.corestore || new Corestore(opts.storage || ram)
@@ -105,7 +96,6 @@ class Scope extends Nanoresource {
     this.defaultFeedType = opts.defaultFeedType || FEED_TYPE
     this.defaultWriterName = opts.defaultWriterName || FEED_LOCAL
 
-
     const db = opts.db || memdb()
     this._feedStore = new SyncMap(sub(db, 's'), {
       valueEncoding: 'json'
@@ -160,6 +150,10 @@ class Scope extends Nanoresource {
 
   get api () {
     return this.kappa.api
+  }
+
+  replicate (...args) {
+    return this.corestore.replicate(...args)
   }
 
   use (name, view, opts = {}) {
@@ -770,5 +764,6 @@ function decodeKey (key) {
   return (typeof key === 'string') ? datEncoding.decode(key) : key
 }
 
+module.exports = Scopes
 module.exports.Scopes = Scopes
 module.exports.Scope = Scope
