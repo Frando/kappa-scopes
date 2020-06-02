@@ -1,0 +1,9 @@
+syntax = "proto2";
+
+// The Header is DEP-0007 compatible.
+// It is written as the first message to every feed.
+// Metadata is currently empty.
+message Header {
+  required string type = 1;
+  optional bytes metadata = 2;
+}
