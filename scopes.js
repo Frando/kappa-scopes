@@ -217,8 +217,8 @@ class Scope extends Nanoresource {
       }
 
       // Add feeds from store, if any.
-      for (const [key, info] of self._feedStore.entries()) {
-        self._addFeedInternally(key, info)
+      for (const [dkey, info] of self._feedStore.entries()) {
+        self._addFeedInternally(info.key, info)
       }
 
       finish()
@@ -279,7 +279,8 @@ class Scope extends Nanoresource {
     this._feedNames.set(encodeKey(feed.key), idx)
     this._feedNames.set(idx, idx)
 
-    feed[INFO].setInfo({ name, type, ...info || {} })
+    const hkey = feed.key.toString('hex')
+    feed[INFO].setInfo({ name, type, key: hkey, ...info || {} })
 
     this.indexer.add(feed, { scan: true })
 
