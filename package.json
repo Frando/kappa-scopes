@@ -1,6 +1,6 @@
 {
   "name": "kappa-scopes",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "main": "scopes.js",
   "license": "MIT",
   "dependencies": {
