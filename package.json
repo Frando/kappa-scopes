@@ -1,6 +1,6 @@
 {
   "name": "kappa-scopes",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "main": "scopes.js",
   "license": "MIT",
   "dependencies": {
@@ -13,7 +13,7 @@
     "hypercore": "^9.1.0",
     "hypercore-protocol": "^8.0.0",
     "inspect-custom-symbol": "^1.1.1",
-    "kappa-core": "github:Frando/kappa-core#exp-0.2.5",
+    "kappa-core": "github:Frando/kappa-core#exp-0.2.6",
     "kappa-sparse-indexer": "^0.6.0",
     "level-mem": "^5.0.1",
     "lru-cache": "^5.1.1",
