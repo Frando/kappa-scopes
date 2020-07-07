@@ -516,6 +516,7 @@ class Scope extends Nanoresource {
       function finish (err, message) {
         if (err) return cb(err)
         message.lseq = req.lseq
+        message.version = message.key + '@' + message.seq
         self._recordCache.set(req.lseq, message)
         if (req.meta) {
           message = { ...message, meta: req.meta }
@@ -575,7 +576,7 @@ class Scope extends Nanoresource {
           return next()
         }
         self.load(req, (err, message) => {
-          if (err) return next()
+          if (err) return this.destroy(err)
           if (bitfield) bitfield.set(req.lseq, 1)
           this.push(message)
           next()
