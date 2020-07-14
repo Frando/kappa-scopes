@@ -157,6 +157,7 @@ class Scope extends Nanoresource {
   }
 
   use (name, view, opts = {}) {
+    const self = this
     const sourceOpts = {
       maxBatch: opts.maxBatch || DEFAULT_MAX_BATCH
     }
@@ -172,9 +173,7 @@ class Scope extends Nanoresource {
     if (opts.scopeFeed) {
       // TODO: Make async?
       sourceOpts.filterKey = function (key) {
-        const feed = this.feed(key)
-        if (!feed) return null
-        return opts.scopeFeed(feed[INFO])
+        return opts.scopeFeed(self.feedInfo(key))
       }
     }
     if (!opts.context) opts.context = this
@@ -298,8 +297,8 @@ class Scope extends Nanoresource {
 
   feedInfo (keyOrName) {
     const feed = this.feed(keyOrName)
-    if (feed) return feed[INFO].info
-    return null
+    if (!feed) return null
+    return feed[INFO].info
   }
 
   feed (name) {
