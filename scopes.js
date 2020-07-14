@@ -161,19 +161,10 @@ class Scope extends Nanoresource {
     const sourceOpts = {
       maxBatch: opts.maxBatch || DEFAULT_MAX_BATCH
     }
-    if (opts.filterHeader !== false) {
-      sourceOpts.transform = function (message, next) {
-        if (message.seq === 0) next(null)
-        else next(message)
-        // return message
-        // console.log(messages)
-        // next(messages.filter(msg => msg.seq !== 0))
-      }
-    }
     if (opts.scopeFeed) {
       // TODO: Make async?
       sourceOpts.filterKey = function (key) {
-        return opts.scopeFeed(self.feedInfo(key))
+        return opts.scopeFeed(key, self.feedInfo(key))
       }
     }
     if (!opts.context) opts.context = this
@@ -295,13 +286,14 @@ class Scope extends Nanoresource {
     return feed
   }
 
-  feedInfo (keyOrName) {
-    const feed = this.feed(keyOrName)
+  feedInfo (name) {
+    const feed = this.feed(name)
     if (!feed) return null
     return feed[INFO].info
   }
 
   feed (name) {
+    if (name && typeof name === 'object' && name.key) name = name.key
     if (Buffer.isBuffer(name)) name = encodeKey(name)
     if (!this._feedNames.has(name)) return null
     return this._feeds.get(this._feedNames.get(name))
@@ -392,48 +384,11 @@ class Scope extends Nanoresource {
     })
   }
 
-  append (message, opts, cb) {
-    const self = this
-    if (typeof opts === 'function') {
-      cb = opts
-      opts = {}
-    }
-    if (!opts) opts = {}
-    if (!cb) cb = noop
-
-    this.lock(release => {
-      self.writer(opts, (err, feed) => {
-        if (err) return release(cb, err)
-        opts.feedInfo = feed[INFO].info
-        opts.feedType = feed[INFO].type
-        self._onappend(message, opts, (err, buf, result) => {
-          if (err) return release(cb, err)
-          feed.append(buf, err => {
-            if (err) return release(cb, err)
-            // if (!result.key) result.key = feed.key
-            // if (!result.seq) result.seq = feed.length - 1
-            release(cb, err, result)
-          })
-        })
-      })
-    })
-  }
-
-  _onappend (message, opts, cb) {
-    const { feedType } = opts
-    if (this._feedTypes[feedType] && this._feedTypes[feedType].onappend) {
-      this._feedTypes[feedType].onappend(message, opts, cb)
-    } else if (this.handlers.onappend) {
-      this.handlers.onappend(message, opts, cb)
-    } else {
-      cb(null, message, {})
-    }
-  }
-
   _onload (message, opts, cb) {
-    const { feedType } = message
-    if (this._feedTypes[feedType] && this._feedTypes[feedType].onload) {
-      this._feedTypes[feedType].onload(message, opts, cb)
+    const info = this.feedInfo(message.key)
+    const type = info.type
+    if (type && this._feedTypes[type] && this._feedTypes[type].onload) {
+      this._feedTypes[type].onload(message, opts, cb)
     } else if (this.handlers.onload) {
       this.handlers.onload(message, opts, cb)
     } else {
@@ -441,58 +396,24 @@ class Scope extends Nanoresource {
     }
   }
 
-  batch (messages, opts, cb) {
-    if (typeof opts === 'function') {
-      cb = opts
-      opts = {}
-    }
-    const self = this
-    this.lock(release => {
-      const batch = []
-      const errs = []
-      const results = []
-      let pending = messages.length
-      self.writer(opts, (err, feed) => {
-        if (err) return release(cb, err)
-        opts.feedType = feed[INFO].type
-        for (const message of messages) {
-          process.nextTick(() => this._onappend(message, opts, done))
-        }
-        function done (err, buf, result) {
-          if (err) errs.push(err)
-          else {
-            batch.push(buf)
-            results.push(result)
-          }
-          if (--pending !== 0) return
-
-          if (errs.length) {
-            let err = new Error(`Batch failed with ${errs.length} errors. First error: ${errs[0].message}`)
-            err.errors = errs
-            release(cb, err)
-            return
-          }
-
-          feed.append(batch, err => release(cb, err, results))
-        }
-      })
+  _getFromFeed (key, seq, opts = {}, cb) {
+    if (typeof opts === 'function') { cb = opts; opts = {} }
+    if (opts.wait === undefined) opts.wait = false
+    const feed = this.feed(key)
+    if (!feed) return cb(new Error('Feed does not exist: ' + key))
+    feed.get(seq, opts, (err, value) => {
+      if (err) return cb(err)
+      const message = {
+        key: feed.key.toString('hex'),
+        seq: Number(seq),
+        value
+      }
+      this._onload(message, opts, cb)
     })
   }
 
-  get (keyOrName, seq, opts, cb) {
-    if (typeof opts === 'function') {
-      cb = opts
-      opts = {}
-    }
-    if (opts.wait === undefined) opts.wait = false
-    const feed = this.feed(keyOrName)
-    if (!feed) return cb(new Error('Feed does not exist: ' + keyOrName))
-    feed.get(seq, opts, (err, value) => {
-      if (err) return cb(err)
-      const { type: feedType } = feed[INFO]
-      const message = { key: keyOrName, seq, value, feedType }
-      this._onload(message, opts, cb)
-    })
+  get (req, opts, cb) {
+    this.load(req, opts, cb)
   }
 
   load (req, opts, cb) {
@@ -510,7 +431,7 @@ class Scope extends Nanoresource {
         return cb(null, this._recordCache.get(req.lseq))
       }
 
-      this.get(req.key, req.seq, opts, finish)
+      this._getFromFeed(req.key, req.seq, opts, finish)
 
       function finish (err, message) {
         if (err) return cb(err)
@@ -550,10 +471,6 @@ class Scope extends Nanoresource {
     }
   }
 
-  loadRecord (req, cb) {
-    this.load(req, cb)
-  }
-
   createLoadStream (opts = {}) {
     const self = this
 
@@ -583,6 +500,20 @@ class Scope extends Nanoresource {
       })
     })
     return transform
+  }
+
+  query (name, args, opts = {}, cb) {
+    if (typeof opts === 'function') {
+      cb = opts
+      opts = {}
+    }
+
+    if (cb && opts.live) {
+      return cb(new Error('Cannot use live mode with callbacks'))
+    }
+
+    const qs = this.createQueryStream(name, args, opts)
+    return collect(qs, cb)
   }
 
   createQueryStream (name, args, opts = {}) {
@@ -630,20 +561,6 @@ class Scope extends Nanoresource {
     })
   }
 
-  query (name, args, opts = {}, cb) {
-    if (typeof opts === 'function') {
-      cb = opts
-      opts = {}
-    }
-
-    if (cb && opts.live) {
-      return cb(new Error('Cannot use live mode with callbacks'))
-    }
-
-    const qs = this.createQueryStream(name, args, opts)
-    return collect(qs, cb)
-  }
-
   [inspect] (depth, opts) {
     const { stylize } = opts
     var indent = ''
@@ -652,17 +569,22 @@ class Scope extends Nanoresource {
     }
 
     const feeds = this.list().map(feed => {
-      let w = feed.writable ? '+' : ''
-      return `[${pretty(feed.key)}${w} ${feed[INFO].name + ' ' || ''}@ ${feed.length}]`
+      const w = feed.writable ? '+' : ' '
+      const info = feed[INFO]
+      let str = `[${pretty(feed.key)} @ ${feed.length} ${w}`
+      if (info.name) str += ' ' + info.name
+      if (info.type) str += ' (' + info.type + ')'
+      str += ']'
+      return str
     }).join(', ')
 
     return 'Scope(\n' +
           indent + '  key         : ' + stylize((this.key && pretty(this.key)), 'string') + '\n' +
           indent + '  discoveryKey: ' + stylize((this.discoveryKey && pretty(this.discoveryKey)), 'string') + '\n' +
           // indent + '  swarmMode:    ' + stylize(this._swarmMode) + '\n' +
-          indent + '  feeds:      : ' + stylize(feeds) + '\n' +
-          indent + '  opened      : ' + stylize(this.opened, 'boolean') + '\n' +
           indent + '  name        : ' + stylize(this._name, 'string') + '\n' +
+          // indent + '  opened      : ' + stylize(this.opened, 'boolean') + '\n' +
+          indent + '  feeds:      : ' + stylize(feeds) + '\n' +
           indent + ')'
   }
 }
